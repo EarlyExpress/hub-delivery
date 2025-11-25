@@ -32,12 +32,11 @@ spring:
       properties:
         spring.json.trusted.packages: "*"
 
+    # ----- Topic 설정 -----
     topic:
-      order-events: order-service-events
-      order-payment-verified: order-payment-verified
-      payment-events: payment-events
-      notification-requested-event: notification-requested-event
-      tracking-start-requested-event: tracking-start-requested-event
+      hub-delivery-completed: hub-delivery-completed
+      hub-segment-departed: hub-segment-departed
+      hub-segment-arrived: hub-segment-arrived
 
   cloud:
     config:
