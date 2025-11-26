@@ -27,6 +27,7 @@ public enum HubDeliveryErrorCode implements ErrorCode {
     SEGMENT_ALREADY_DEPARTED("HUB_DELIVERY_203", "이미 출발한 구간입니다.", 400),
     SEGMENT_ALREADY_ARRIVED("HUB_DELIVERY_204", "이미 도착한 구간입니다.", 400),
     ALL_SEGMENTS_COMPLETED("HUB_DELIVERY_205", "모든 구간이 이미 완료되었습니다.", 400),
+    SEGMENT_CANNOT_ASSIGN("HUB_DELIVERY_206", "구간에 드라이버를 배정할 수 없습니다.", 400),
 
     // 배송 담당자 관련 (400)
     DRIVER_NOT_ASSIGNED("HUB_DELIVERY_301", "배송 담당자가 배정되지 않았습니다.", 400),
