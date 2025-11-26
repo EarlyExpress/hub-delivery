@@ -15,6 +15,9 @@ import java.util.List;
 
 /**
  * Hub Delivery Aggregate Root
+ *
+ * 허브 간 배송을 관리하는 애그리거트 루트입니다.
+ * 여러 개의 HubSegment(구간)으로 구성되며, 각 구간별로 드라이버가 배정됩니다.
  */
 @Slf4j
 @Getter
@@ -27,7 +30,7 @@ public class HubDelivery {
     private String destinationHubId;
     private List<HubSegment> segments;
     private HubDeliveryStatus status;
-    private String driverId;
+    private String driverId;  // Deprecated: 구간별 드라이버로 대체
     private Integer currentSegmentIndex;
     private LocalDateTime startedAt;
     private LocalDateTime completedAt;
@@ -77,6 +80,13 @@ public class HubDelivery {
 
     /**
      * 새로운 HubDelivery 생성
+     *
+     * @param orderId 주문 ID
+     * @param originHubId 출발 허브 ID
+     * @param destinationHubId 도착 허브 ID
+     * @param segments 허브 구간 목록 (모두 PENDING 상태)
+     * @param createdBy 생성자
+     * @return 생성된 HubDelivery (CREATED 상태)
      */
     public static HubDelivery create(String orderId, String originHubId,
                                      String destinationHubId, List<HubSegment> segments,
@@ -144,8 +154,11 @@ public class HubDelivery {
     // ===== 비즈니스 메서드 =====
 
     /**
-     * 배송 담당자 배정
+     * 배송 담당자 배정 (전체 배송 레벨)
+     *
+     * @deprecated 구간별 드라이버 배정을 사용하세요 {@link #assignDriverToSegment(int, String)}
      */
+    @Deprecated
     public void assignDriver(String driverId) {
         validateNotTerminal();
 
@@ -165,7 +178,38 @@ public class HubDelivery {
     }
 
     /**
+     * 특정 구간에 드라이버 배정
+     *
+     * 구간 상태: PENDING → ASSIGNED
+     *
+     * @param segmentIndex 구간 인덱스 (0부터 시작)
+     * @param driverId 드라이버 ID
+     * @throws HubDeliveryException 유효하지 않은 구간 인덱스 또는 배정 불가 상태
+     */
+    public void assignDriverToSegment(int segmentIndex, String driverId) {
+        validateNotTerminal();
+        validateSegmentIndex(segmentIndex);
+
+        HubSegment segment = this.segments.get(segmentIndex);
+        HubSegment assignedSegment = segment.assignDriver(driverId);
+
+        this.segments.set(segmentIndex, assignedSegment);
+
+        log.info("구간 드라이버 배정 - hubDeliveryId: {}, segment: {}/{}, driverId: {}",
+                this.getIdValue(),
+                segmentIndex + 1,
+                this.segments.size(),
+                driverId);
+    }
+
+    /**
      * 구간 출발
+     *
+     * 구간 상태: ASSIGNED → IN_TRANSIT
+     * 배송 상태: → IN_PROGRESS
+     *
+     * @param segmentIndex 구간 인덱스
+     * @throws HubDeliveryException 이전 구간 미완료 또는 출발 불가 상태
      */
     public void departSegment(int segmentIndex) {
         validateNotTerminal();
@@ -193,6 +237,12 @@ public class HubDelivery {
 
     /**
      * 구간 도착
+     *
+     * 구간 상태: IN_TRANSIT → ARRIVED
+     * 모든 구간 완료 시 배송 상태: → COMPLETED
+     *
+     * @param segmentIndex 구간 인덱스
+     * @throws HubDeliveryException 도착 불가 상태
      */
     public void arriveSegment(int segmentIndex) {
         validateNotTerminal();
@@ -237,6 +287,14 @@ public class HubDelivery {
     public void fail() {
         this.status = HubDeliveryStatus.FAILED;
         this.completedAt = LocalDateTime.now();
+
+        // 진행 중인 구간 실패 처리
+        for (int i = 0; i < this.segments.size(); i++) {
+            HubSegment segment = this.segments.get(i);
+            if (!segment.isCompleted() && !segment.getStatus().isTerminal()) {
+                this.segments.set(i, segment.fail());
+            }
+        }
 
         log.info("허브 배송 실패 - hubDeliveryId: {}, orderId: {}",
                 this.getIdValue(), this.orderId);
@@ -308,16 +366,39 @@ public class HubDelivery {
         return this.id != null ? this.id.getValue() : null;
     }
 
+    /**
+     * 특정 구간 조회
+     *
+     * @param segmentIndex 구간 인덱스 (0부터 시작)
+     * @return 해당 구간
+     * @throws HubDeliveryException 유효하지 않은 구간 인덱스
+     */
+    public HubSegment getSegment(int segmentIndex) {
+        validateSegmentIndex(segmentIndex);
+        return this.segments.get(segmentIndex);
+    }
+
+    /**
+     * 총 구간 수
+     */
     public int getTotalSegments() {
         return this.segments.size();
     }
 
+    /**
+     * 완료된 구간 수
+     */
     public int getCompletedSegments() {
         return (int) this.segments.stream()
                 .filter(HubSegment::isCompleted)
                 .count();
     }
 
+    /**
+     * 현재 진행 중인 구간 조회
+     *
+     * @return 현재 구간 (없으면 null)
+     */
     public HubSegment getCurrentSegment() {
         if (this.currentSegmentIndex != null && this.currentSegmentIndex < this.segments.size()) {
             return this.segments.get(this.currentSegmentIndex);
@@ -325,24 +406,73 @@ public class HubDelivery {
         return null;
     }
 
+    /**
+     * 다음 대기 중인 구간 조회
+     *
+     * @return 다음 PENDING 상태 구간 (없으면 null)
+     */
+    public HubSegment getNextPendingSegment() {
+        return this.segments.stream()
+                .filter(HubSegment::isPending)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * 다음 대기 중인 구간 인덱스 조회
+     *
+     * @return 다음 PENDING 상태 구간 인덱스 (없으면 -1)
+     */
+    public int getNextPendingSegmentIndex() {
+        for (int i = 0; i < this.segments.size(); i++) {
+            if (this.segments.get(i).isPending()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 모든 구간 완료 여부
+     */
     public boolean isAllSegmentsCompleted() {
         return this.segments.stream().allMatch(HubSegment::isCompleted);
     }
 
+    /**
+     * 다음 구간 존재 여부
+     */
+    public boolean hasNextSegment() {
+        return getNextPendingSegmentIndex() >= 0;
+    }
+
+    /**
+     * 배송 완료 여부
+     */
     public boolean isCompleted() {
         return this.status == HubDeliveryStatus.COMPLETED;
     }
 
+    /**
+     * 배송 실패 여부
+     */
     public boolean isFailed() {
         return this.status == HubDeliveryStatus.FAILED;
     }
 
+    /**
+     * 배송 진행 중 여부
+     */
     public boolean isInProgress() {
         return this.status.isInProgress();
     }
 
+    /**
+     * 각 구간별 ID 목록 반환
+     *
+     * @return 구간 ID 목록 (hubDeliveryId-segment-0, hubDeliveryId-segment-1, ...)
+     */
     public List<String> getSegmentIds() {
-        // 각 구간별 ID 반환 (hubDeliveryId-segment-0, hubDeliveryId-segment-1, ...)
         List<String> ids = new ArrayList<>();
         String baseId = this.getIdValue();
         if (baseId != null) {
