@@ -28,6 +28,18 @@ public class HubDeliveryCommandDto {
     }
 
     /**
+     * 구간 드라이버 배정 Command
+     * Track Service에서 호출
+     */
+    @Getter
+    @Builder
+    public static class AssignDriverForSegmentCommand {
+        private String hubDeliveryId;
+        private Integer segmentIndex;
+        private String requestedBy;
+    }
+
+    /**
      * 구간 출발 Command
      */
     @Getter
@@ -85,6 +97,45 @@ public class HubDeliveryCommandDto {
                     .orderId(orderId)
                     .status("CANCELLED")
                     .message("허브 배송이 취소되었습니다.")
+                    .build();
+        }
+    }
+
+    /**
+     * 구간 드라이버 배정 결과
+     */
+    @Getter
+    @Builder
+    public static class AssignDriverResult {
+        private String hubDeliveryId;
+        private Integer segmentIndex;
+        private String driverId;
+        private String driverName;
+        private String status;
+        private boolean success;
+        private String message;
+
+        public static AssignDriverResult success(String hubDeliveryId, Integer segmentIndex,
+                                                 String driverId, String driverName) {
+            return AssignDriverResult.builder()
+                    .hubDeliveryId(hubDeliveryId)
+                    .segmentIndex(segmentIndex)
+                    .driverId(driverId)
+                    .driverName(driverName)
+                    .status("ASSIGNED")
+                    .success(true)
+                    .message("드라이버가 배정되었습니다.")
+                    .build();
+        }
+
+        public static AssignDriverResult failed(String hubDeliveryId, Integer segmentIndex,
+                                                String reason) {
+            return AssignDriverResult.builder()
+                    .hubDeliveryId(hubDeliveryId)
+                    .segmentIndex(segmentIndex)
+                    .status("FAILED")
+                    .success(false)
+                    .message(reason)
                     .build();
         }
     }
